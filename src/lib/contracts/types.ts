@@ -1,6 +1,6 @@
 export const DECISIONS = ["APPROVED", "NEEDS_REVIEW_HIGH_RISK", "REJECTED"] as const;
 export type Decision = (typeof DECISIONS)[number];
-export type ExtractionSource = "OPENAI" | "FIXTURE_FALLBACK";
+export type ExtractionSource = "OPENAI" | "OCR_SPACE_OPENAI" | "FIXTURE_FALLBACK";
 export type FieldName = "invoice_number" | "supplier_name" | "tax_id" | "purchase_order_number" | "total";
 
 export interface ExtractedData {

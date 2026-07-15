@@ -28,7 +28,7 @@
         "enum": ["invoice_number", "supplier_name", "tax_id", "purchase_order_number", "total"]
       }
     },
-    "extraction_source": { "enum": ["OPENAI", "FIXTURE_FALLBACK"] },
+    "extraction_source": { "enum": ["OPENAI", "OCR_SPACE_OPENAI", "FIXTURE_FALLBACK"] },
     "fallback_reason": { "type": ["string", "null"] }
   }
 }

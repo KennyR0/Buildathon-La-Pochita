@@ -12,7 +12,7 @@ export async function decideAndPersist(extracted: ExtractedData, repository = ne
     const outcome = evaluateInvoice({ extracted, supplier, purchaseOrder: order, duplicateRootId });
     const audit: AuditWrite[] = [
       { event_type: "PROCESSING_STARTED", status: "STARTED", details: {} },
-      { event_type: extracted.extraction_source === "FIXTURE_FALLBACK" ? "EXTRACTION_FALLBACK_USED" : "EXTRACTION_COMPLETED", status: "COMPLETED", details: { source: extracted.extraction_source, reason: extracted.fallback_reason } },
+      { event_type: extracted.extraction_source === "OPENAI" ? "EXTRACTION_COMPLETED" : "EXTRACTION_FALLBACK_USED", status: "COMPLETED", details: { source: extracted.extraction_source, reason: extracted.fallback_reason } },
       { event_type: extracted.invalid_fields.length ? "EXTRACTION_INVALID" : "STRUCTURE_VALIDATED", status: extracted.invalid_fields.length ? "FAILED" : "PASSED", details: { invalid_fields: extracted.invalid_fields } },
       { event_type: "SUPPLIER_CHECKED", status: supplier ? "PASSED" : "FAILED", details: { supplier_id: supplier?.id ?? null } },
       { event_type: "PURCHASE_ORDER_CHECKED", status: order ? "PASSED" : "FAILED", details: { purchase_order_id: order?.id ?? null, authorized_amount: order?.authorized_amount ?? null } },
@@ -44,7 +44,8 @@ export async function getPersistedResult(invoiceId: string, repository = new Inv
   const result = toInvoiceResult(invoice, validations);
   const fallback = [...timeline].reverse().find(event => event.event_type === "EXTRACTION_FALLBACK_USED");
   if (fallback) {
-    result.extracted_data.extraction_source = "FIXTURE_FALLBACK";
+    const source = fallback.details.source;
+    result.extracted_data.extraction_source = source === "OCR_SPACE_OPENAI" ? source : "FIXTURE_FALLBACK";
     result.extracted_data.fallback_reason = typeof fallback.details.reason === "string" ? fallback.details.reason : "Fallback de demostración";
   }
   return result;

@@ -7,6 +7,7 @@
     "build": "next build --webpack",
     "start": "next start",
     "test": "vitest run",
+    "test:ocr:live": "node --env-file=.env node_modules/vitest/vitest.mjs run --config vitest.live.config.ts",
     "demo:seed": "node scripts/seed.mjs",
     "demo:fixtures": "node scripts/generate-fixtures.mjs"
   },

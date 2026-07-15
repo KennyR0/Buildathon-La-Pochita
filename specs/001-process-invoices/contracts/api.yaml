@@ -79,7 +79,7 @@ components:
         purchase_order_number: { type: [string, 'null'], minLength: 1, pattern: '.*\S.*', description: 'Validated after trim; empty or whitespace-only is invalid.' }
         total: { type: [number, 'null'], minimum: 0 }
         invalid_fields: { type: array, items: { type: string } }
-        extraction_source: { enum: [OPENAI, FIXTURE_FALLBACK] }
+        extraction_source: { enum: [OPENAI, OCR_SPACE_OPENAI, FIXTURE_FALLBACK] }
         fallback_reason: { type: [string, 'null'] }
     ValidationResult:
       type: object

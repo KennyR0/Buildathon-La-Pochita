@@ -3,6 +3,7 @@ import type { ExtractedData } from "@/lib/contracts/types";
 import { normalizeExtractedData } from "@/lib/contracts/validation";
 import { fixtureFallback } from "./fixtures";
 import { pdfPagesToPng } from "./pdf";
+import { recognizeWithOcrSpace } from "@/lib/ocr-space";
 
 const extractionSchema = {
   type: "object",

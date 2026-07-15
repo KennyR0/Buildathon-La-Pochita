@@ -202,8 +202,11 @@ export function InvoiceWorkbench() {
                 ))}
               </div>
 
-              {result.extracted_data.extraction_source === "FIXTURE_FALLBACK" && (
-                <div className="notice"><strong>Modo de respaldo utilizado</strong><span>{result.extracted_data.fallback_reason}</span></div>
+              {result.extracted_data.extraction_source !== "OPENAI" && (
+                <div className="notice">
+                  <strong>{result.extracted_data.extraction_source === "OCR_SPACE_OPENAI" ? "Respaldo OCR utilizado" : "Fixture de respaldo utilizado"}</strong>
+                  <span>{result.extracted_data.fallback_reason}</span>
+                </div>
               )}
 
               <section className="panel">
