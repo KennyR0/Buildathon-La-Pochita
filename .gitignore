@@ -11,5 +11,6 @@ Thumbs.db
 *.tmp
 *.swp
 *.tsbuildinfo
+.tools/
 .vscode/
 .idea/
