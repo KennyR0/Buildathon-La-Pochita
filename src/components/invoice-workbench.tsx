@@ -86,6 +86,13 @@ const emptyCorrection: EditableData = {
   total: null,
 };
 
+const sampleInvoices = [
+  { label: "Factura demo 1", href: "/sample-invoices/invoice-1.png", type: "PNG" },
+  { label: "Factura demo 2", href: "/sample-invoices/invoice-2.webp", type: "WEBP" },
+  { label: "Factura demo 3", href: "/sample-invoices/invoice-3.png", type: "PNG" },
+  { label: "Factura demo 4", href: "/sample-invoices/invoice-4.png", type: "PNG" },
+];
+
 export function InvoiceWorkbench() {
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [file, setFile] = useState<File | null>(null);
@@ -254,6 +261,7 @@ export function InvoiceWorkbench() {
           <button className="primary" disabled={loadState === "processing"}>
             {loadState === "processing" ? "Procesando..." : "Procesar factura"}
           </button>
+          <SampleInvoiceDownloads />
         </form>
 
         <section className="result-area" aria-live="polite">
@@ -312,6 +320,25 @@ export function InvoiceWorkbench() {
         </section>
       </section>
     </main>
+  );
+}
+
+function SampleInvoiceDownloads() {
+  return (
+    <section className="sample-downloads" aria-label="Facturas de demostracion para descargar">
+      <div>
+        <p className="eyebrow">Facturas demo</p>
+        <p>Descarga una muestra y subela para probar.</p>
+      </div>
+      <div className="sample-download-list">
+        {sampleInvoices.map((invoice) => (
+          <a href={invoice.href} download key={invoice.href}>
+            <span>{invoice.label}</span>
+            <small>{invoice.type}</small>
+          </a>
+        ))}
+      </div>
+    </section>
   );
 }
 

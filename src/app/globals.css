@@ -273,6 +273,61 @@ main {
   box-shadow: none;
 }
 
+.sample-downloads {
+  display: grid;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+.sample-downloads p:not(.eyebrow) {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.sample-download-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sample-download-list a {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 11px;
+  color: var(--ink);
+  text-decoration: none;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-strong);
+  transition: border-color 160ms ease, transform 160ms ease, background 160ms ease;
+}
+
+.sample-download-list a:hover,
+.sample-download-list a:focus-visible {
+  border-color: var(--green);
+  background: var(--green-soft);
+  transform: translateY(-1px);
+}
+
+.sample-download-list span {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.sample-download-list small {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
 .result-area {
   min-width: 0;
   display: grid;
@@ -769,6 +824,7 @@ textarea {
 
   .data-grid,
   .form-grid,
+  .sample-download-list,
   .supplier-review-summary,
   .segmented {
     grid-template-columns: 1fr;
