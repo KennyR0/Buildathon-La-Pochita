@@ -64,6 +64,21 @@ paths:
         '200': { description: Resolved result, content: { application/json: { schema: { $ref: '#/components/schemas/InvoiceResult' } } } }
         '409': { $ref: '#/components/responses/Error' }
         '422': { $ref: '#/components/responses/Error' }
+  /api/invoices/{invoiceId}/supplier-decision:
+    post:
+      summary: Approve a missing supplier and revalidate, or reject the invoice
+      parameters: [{ $ref: '#/components/parameters/InvoiceId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SupplierDecisionRequest' }
+      responses:
+        '200': { description: Revalidated or rejected result, content: { application/json: { schema: { $ref: '#/components/schemas/InvoiceResult' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
 components:
   parameters:
     InvoiceId: { name: invoiceId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -122,6 +137,20 @@ components:
         purchase_order_number: { type: string, minLength: 1 }
         total: { type: number, minimum: 0 }
         justification: { type: string, minLength: 1 }
+    SupplierDecisionRequest:
+      type: object
+      additionalProperties: false
+      required: [decision]
+      properties:
+        decision: { enum: [APPROVED, REJECTED] }
+        justification: { type: string }
+      allOf:
+        - if:
+            properties: { decision: { const: REJECTED } }
+            required: [decision]
+          then:
+            required: [justification]
+            properties: { justification: { type: string, minLength: 1, pattern: '.*\S.*' } }
   responses:
     ServiceUnavailable:
       description: Extraction is unavailable without an exact fixture match, or required Supabase persistence is unavailable

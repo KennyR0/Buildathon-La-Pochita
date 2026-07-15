@@ -23,6 +23,9 @@ extracción estructurada, validaciones persistentes, reglas deterministas, decis
   únicamente los cinco campos extraídos y volver a ejecutar todas las validaciones y reglas.
 - Q: ¿Cómo se almacenan la decisión automática y la humana? → A: Se guardan por separado; la
   decisión humana, cuando existe, prevalece como estado efectivo mostrado.
+- Q: ¿Cómo se resuelve un proveedor extraído que no existe? → A: Una revisión compacta permite
+  crear el proveedor con nombre y RUC extraídos y revalidar la misma factura, o rechazar la factura
+  con justificación; no se introduce un CRUD general.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -71,6 +74,11 @@ que el resultado es `NEEDS_REVIEW_HIGH_RISK`, identifica la discrepancia y conse
 3. **Given** una factura no duplicada cuya orden no existe o cuyo proveedor no coincide con la
    orden, **When** se ejecutan las reglas, **Then** la decisión es `NEEDS_REVIEW_HIGH_RISK` y cada
    validación fallida aparece separadamente en el timeline.
+4. **Given** una factura completa cuyo proveedor no existe, **When** el usuario aprueba el alta,
+   **Then** el sistema crea o reutiliza el proveedor por RUC, revalida la misma factura y conserva
+   visibles las demás validaciones fallidas.
+5. **Given** una factura completa cuyo proveedor no existe, **When** el usuario rechaza el alta con
+   justificación, **Then** el proveedor no se crea y la factura queda `REJECTED` por decisión humana.
 
 ---
 
@@ -189,7 +197,12 @@ justificada se acepta y permanece en el timeline.
   monto y reglas; la edición MUST NOT aprobar ni rechazar directamente la factura.
 - **FR-015**: El MVP MUST utilizar solo las entidades principales `suppliers`, `purchase_orders`,
   `invoices` y `audit_logs`; proveedores y órdenes de compra MUST poder prepararse previamente como
-  datos de demostración.
+  datos de demostración, y un proveedor faltante MUST poder aprobarse desde su factura sin añadir
+  una pantalla de administración.
+- **FR-020**: Para una factura completa en revisión por `SUPPLIER_EXISTS`, el sistema MUST mostrar
+  nombre y RUC extraídos, permitir aprobar el proveedor y reejecutar todas las reglas sobre la misma
+  factura, o rechazar la factura con justificación. La aprobación MUST ser idempotente por RUC y
+  quedar auditada sin exigir justificación ni sobrescribir otras validaciones fallidas.
 - **FR-016**: El sistema MUST ofrecer fixtures de respaldo para los tres escenarios obligatorios;
   estos MUST atravesar el mismo flujo de reglas, consultas, escrituras y auditoría que una carga
   normal.
@@ -200,8 +213,9 @@ justificada se acepta y permanece en el timeline.
 
 ### Key Entities *(include if feature involves data)*
 
-- **Supplier (`suppliers`)**: Proveedor empresarial precargado; su identificación tributaria es la
-  clave de coincidencia exacta y su nombre comercial es informativo. Se relaciona con una orden.
+- **Supplier (`suppliers`)**: Proveedor empresarial precargado o aprobado desde una factura; su
+  identificación tributaria es la clave de coincidencia exacta y su nombre comercial es informativo.
+  Se relaciona con una orden.
 - **Purchase Order (`purchase_orders`)**: Autorización precargada vinculada a un proveedor; contiene
   su referencia y monto autorizado para comparar la factura.
 - **Invoice (`invoices`)**: Factura procesada, completa o incompleta; conserva los campos disponibles,
@@ -242,8 +256,8 @@ justificada se acepta y permanece en el timeline.
 - El MVP procesa una factura por operación y una sola moneda de demostración: USD.
 - Los montos se consideran coincidentes mediante igualdad exacta en la precisión monetaria
   almacenada; no se incluyen tolerancias, impuestos ni conversiones.
-- Proveedores y órdenes de compra necesarios para la demo estarán precargados antes de procesar
-  facturas.
+- Las órdenes de compra necesarias para la demo estarán precargadas; los proveedores pueden estar
+  precargados o aprobarse desde una factura en revisión.
 - No se identifica al operador mediante autenticación; la resolución humana conserva la acción y
   justificación, pero no introduce gestión de identidades ni roles.
 - El archivo de demostración será suficientemente legible para extraer los cinco campos; el fixture

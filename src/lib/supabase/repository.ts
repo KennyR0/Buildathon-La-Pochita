@@ -4,6 +4,7 @@ import { getServerSupabase, SupabaseRepositoryError } from "./server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export interface SupplierRow { id: string; tax_id: string; name: string }
+export interface SupplierWriteResult { supplier: SupplierRow; created: boolean }
 export interface PurchaseOrderRow { id: string; po_number: string; supplier_id: string; authorized_amount: number }
 export interface AuditWrite { event_type: string; status: "STARTED" | "PASSED" | "FAILED" | "COMPLETED"; details?: Record<string, unknown> }
 export interface PersistAttempt {
@@ -26,6 +27,8 @@ export interface InvoiceRow {
   purchase_order_number: string | null;
   total: number | null;
   duplicate_of_invoice_id: string | null;
+  supplier_id: string | null;
+  purchase_order_id: string | null;
   missing_or_invalid_fields: string[];
   automatic_decision: Decision;
   automatic_reasons: string[];
@@ -43,6 +46,19 @@ export class InvoiceRepository {
     const result = await this.db.from("suppliers").select("id,tax_id,name").eq("tax_id", normalizeKey(taxId)).maybeSingle();
     if (result.error) throw new SupabaseRepositoryError("QUERY", "Could not query supplier", result.error);
     return one(result.data as SupplierRow | null);
+  }
+
+  async createSupplier(name: string, taxId: string): Promise<SupplierWriteResult> {
+    const cleanName = name.trim();
+    const cleanTaxId = normalizeKey(taxId);
+    if (!cleanName || !cleanTaxId) throw new SupabaseRepositoryError("CONFLICT", "Supplier name and tax ID are required");
+    const inserted = await this.db.from("suppliers").insert({ name: cleanName, tax_id: cleanTaxId }).select("id,tax_id,name").single();
+    if (!inserted.error && inserted.data) return { supplier: inserted.data as SupplierRow, created: true };
+    if ((inserted.error as { code?: string } | null)?.code === "23505") {
+      const existing = await this.findSupplier(cleanTaxId);
+      if (existing) return { supplier: existing, created: false };
+    }
+    throw new SupabaseRepositoryError("WRITE", "Could not create supplier", inserted.error);
   }
 
   async findPurchaseOrder(poNumber: string | null): Promise<PurchaseOrderRow | null> {
@@ -107,10 +123,69 @@ export class InvoiceRepository {
   }
 
   async getInvoice(invoiceId: string): Promise<InvoiceRow | null> {
-    const result = await this.db.from("invoices").select("id,processing_id,invoice_number_raw,supplier_name_extracted,tax_id_extracted,purchase_order_number,total,duplicate_of_invoice_id,missing_or_invalid_fields,automatic_decision,automatic_reasons,human_decision,human_justification").eq("id", invoiceId).maybeSingle();
+    const result = await this.db.from("invoices").select("id,processing_id,invoice_number_raw,supplier_name_extracted,tax_id_extracted,purchase_order_number,total,supplier_id,purchase_order_id,duplicate_of_invoice_id,missing_or_invalid_fields,automatic_decision,automatic_reasons,human_decision,human_justification").eq("id", invoiceId).maybeSingle();
     if (result.error) throw new SupabaseRepositoryError("QUERY", "Could not query invoice", result.error);
     if (!result.data) return null;
     return { ...result.data, total: result.data.total === null ? null : Number(result.data.total) } as InvoiceRow;
+  }
+
+  async updateAfterSupplierApproval(input: {
+    invoice: InvoiceRow;
+    supplier: SupplierRow;
+    supplierCreated: boolean;
+    purchaseOrderId: string | null;
+    duplicateOfInvoiceId: string | null;
+    automaticDecision: Decision;
+    reasons: string[];
+    validations: unknown[];
+  }): Promise<void> {
+    const changedAt = new Date().toISOString();
+    const update = {
+      supplier_id: input.supplier.id,
+      purchase_order_id: input.purchaseOrderId,
+      duplicate_of_invoice_id: input.duplicateOfInvoiceId,
+      automatic_decision: input.automaticDecision,
+      automatic_reasons: input.reasons,
+      updated_at: changedAt,
+    };
+    const changed = await this.db.from("invoices").update(update)
+      .eq("id", input.invoice.id)
+      .eq("automatic_decision", "NEEDS_REVIEW_HIGH_RISK")
+      .is("human_decision", null)
+      .contains("automatic_reasons", ["SUPPLIER_EXISTS"])
+      .select("id").maybeSingle();
+    if (changed.error) throw new SupabaseRepositoryError("WRITE", "Could not revalidate invoice after supplier approval", changed.error);
+    if (!changed.data) throw new SupabaseRepositoryError("CONFLICT", "Supplier review was already resolved");
+
+    const events = [
+      {
+        processing_id: input.invoice.processing_id,
+        invoice_id: input.invoice.id,
+        event_type: "SUPPLIER_CREATED",
+        status: "COMPLETED",
+        details: { supplier_id: input.supplier.id, tax_id: input.supplier.tax_id, name: input.supplier.name, created: input.supplierCreated },
+      },
+      {
+        processing_id: input.invoice.processing_id,
+        invoice_id: input.invoice.id,
+        event_type: "RULES_EVALUATED",
+        status: "COMPLETED",
+        details: { decision: input.automaticDecision, validations: input.validations, reasons: input.reasons },
+      },
+    ];
+    const logged = await this.db.from("audit_logs").insert(events);
+    if (!logged.error) return;
+
+    const rollback = await this.db.from("invoices").update({
+      supplier_id: input.invoice.supplier_id,
+      purchase_order_id: input.invoice.purchase_order_id,
+      duplicate_of_invoice_id: input.invoice.duplicate_of_invoice_id,
+      automatic_decision: input.invoice.automatic_decision,
+      automatic_reasons: input.invoice.automatic_reasons,
+      updated_at: new Date().toISOString(),
+    }).eq("id", input.invoice.id).eq("updated_at", changedAt);
+    const suffix = rollback.error ? "; compensation also failed" : "";
+    throw new SupabaseRepositoryError("WRITE", `Could not audit supplier approval${suffix}`, logged.error);
   }
 
   async updateAfterCorrection(input: {
@@ -155,7 +230,7 @@ export class InvoiceRepository {
     if (logged.error) throw new SupabaseRepositoryError("WRITE", "Could not audit corrected invoice", logged.error);
   }
 
-  async recordHumanDecision(invoiceId: string, decision: "APPROVED" | "REJECTED", justification: string): Promise<void> {
+  async recordHumanDecision(invoiceId: string, decision: "APPROVED" | "REJECTED", justification: string, context: Record<string, unknown> = {}): Promise<void> {
     const clean = justification.trim();
     if (!clean) throw new SupabaseRepositoryError("CONFLICT", "Human justification is required");
     const current = await this.db.from("invoices").select("processing_id,automatic_decision,human_decision").eq("id", invoiceId).maybeSingle();
@@ -171,7 +246,7 @@ export class InvoiceRepository {
     if (!updated.data) throw new SupabaseRepositoryError("CONFLICT", "Invoice was already resolved");
     const audit = await this.db.from("audit_logs").insert({
       processing_id: current.data.processing_id, invoice_id: invoiceId, event_type: "HUMAN_DECISION_RECORDED", status: "COMPLETED",
-      details: { decision, justification: clean },
+      details: { decision, justification: clean, ...context },
     });
     if (audit.error) {
       await this.db.from("invoices").update({ human_decision: null, human_justification: null, human_decided_at: null, updated_at: new Date().toISOString() }).eq("id", invoiceId);

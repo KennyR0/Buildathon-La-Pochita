@@ -106,4 +106,34 @@ describe("Supabase supplier lookup", () => {
     await expect(repository.findSupplier("  abc123 ")).resolves.toMatchObject({ id: "supplier-id", tax_id: "ABC123" });
     expect(eq).toHaveBeenCalledWith("tax_id", "ABC123");
   });
+
+  it("creates a normalized supplier and returns the inserted row", async () => {
+    const insert = vi.fn(() => ({
+      select: () => ({
+        single: async () => ({ data: { id: "supplier-id", tax_id: "ABC123", name: "Proveedor" }, error: null }),
+      }),
+    }));
+    const repository = new InvoiceRepository({ from: () => ({ insert }) } as unknown as SupabaseClient);
+
+    await expect(repository.createSupplier("  Proveedor  ", "  abc123 ")).resolves.toEqual({
+      supplier: { id: "supplier-id", tax_id: "ABC123", name: "Proveedor" },
+      created: true,
+    });
+    expect(insert).toHaveBeenCalledWith({ name: "Proveedor", tax_id: "ABC123" });
+  });
+
+  it("reuses a supplier when a concurrent insert wins the unique RUC", async () => {
+    const from = vi.fn(() => ({
+      insert: () => ({ select: () => ({ single: async () => ({ data: null, error: { code: "23505" } }) }) }),
+      select: () => ({
+        eq: () => ({ maybeSingle: async () => ({ data: { id: "existing-id", tax_id: "ABC123", name: "Proveedor existente" }, error: null }) }),
+      }),
+    }));
+    const repository = new InvoiceRepository({ from } as unknown as SupabaseClient);
+
+    await expect(repository.createSupplier("Proveedor", "abc123")).resolves.toEqual({
+      supplier: { id: "existing-id", tax_id: "ABC123", name: "Proveedor existente" },
+      created: false,
+    });
+  });
 });

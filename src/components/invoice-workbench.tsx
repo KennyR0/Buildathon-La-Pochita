@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { AuditEvent, Decision, ExtractedData, FieldName, InvoiceResult } from "@/lib/contracts/types";
-import { canShowHumanDecision, readApiResponse } from "@/components/invoice-workbench-helpers";
+import { canShowHumanDecision, canShowSupplierDecision, readApiResponse } from "@/components/invoice-workbench-helpers";
 
 type LoadState = "idle" | "processing" | "success" | "error";
 type EditableData = Pick<ExtractedData, "invoice_number" | "supplier_name" | "tax_id" | "purchase_order_number" | "total">;
@@ -36,6 +36,7 @@ const auditEventLabels: Record<string, string> = {
   PERSISTENCE_FAILED: "Persistencia fallida",
   FIELDS_CORRECTED: "Campos corregidos",
   HUMAN_DECISION_RECORDED: "Decision humana registrada",
+  SUPPLIER_CREATED: "Proveedor aprobado",
 };
 
 const validationLabels: Record<string, string> = {
@@ -53,18 +54,21 @@ const detailLabels: Record<string, string> = {
   authorized_amount: "Monto autorizado",
   before: "Antes",
   decision: "Decision",
+  created: "Creado",
   description: "Descripcion",
   duplicate_of_invoice_id: "Duplicado de la factura",
   invoice_total: "Total de factura",
   invalid_fields: "Campos invalidos",
   justification: "Justificacion",
   message: "Mensaje",
+  name: "Nombre",
   purchase_order_id: "ID de orden de compra",
   reason: "Motivo",
   reasons: "Motivos",
   skipped: "Omitido",
   source: "Fuente",
   supplier_id: "ID de proveedor",
+  tax_id: "RUC",
   validations: "Validaciones",
 };
 
@@ -92,6 +96,8 @@ export function InvoiceWorkbench() {
   const [correctionJustification, setCorrectionJustification] = useState("");
   const [humanDecision, setHumanDecision] = useState<"APPROVED" | "REJECTED">("APPROVED");
   const [humanJustification, setHumanJustification] = useState("");
+  const [supplierDecision, setSupplierDecision] = useState<"APPROVED" | "REJECTED">("APPROVED");
+  const [supplierJustification, setSupplierJustification] = useState("");
   const [actionPending, setActionPending] = useState(false);
 
   const hydrateResult = useCallback(async (invoice: InvoiceResult) => {
@@ -181,6 +187,20 @@ export function InvoiceWorkbench() {
     });
   }
 
+  async function submitSupplierDecision(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!result) return;
+    await runAction(async () => {
+      const response = await fetch(`/api/invoices/${result.invoice_id}/supplier-decision`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision: supplierDecision, justification: supplierJustification.trim() }),
+      });
+      await hydrateResult(await readApiResponse<InvoiceResult>(response));
+      setSupplierJustification("");
+    });
+  }
+
   async function runAction(action: () => Promise<void>) {
     setActionPending(true);
     setError(null);
@@ -194,7 +214,8 @@ export function InvoiceWorkbench() {
   }
 
   const needsCorrection = Boolean(result?.extracted_data.invalid_fields.length);
-  const canResolve = result ? canShowHumanDecision(result.effective_decision, result.human_decision) : false;
+  const canReviewSupplier = result ? canShowSupplierDecision(result) : false;
+  const canResolve = result ? canShowHumanDecision(result.effective_decision, result.human_decision) && !canReviewSupplier : false;
   const decisionTone = useMemo(() => result?.effective_decision.toLowerCase().replaceAll("_", "-") ?? "", [result]);
 
   return (
@@ -282,6 +303,7 @@ export function InvoiceWorkbench() {
               </section>
 
               {needsCorrection && <CorrectionForm data={correction} setData={setCorrection} justification={correctionJustification} setJustification={setCorrectionJustification} pending={actionPending} onSubmit={submitCorrection} />}
+              {canReviewSupplier && !needsCorrection && <SupplierDecisionForm name={result.extracted_data.supplier_name as string} taxId={result.extracted_data.tax_id as string} decision={supplierDecision} setDecision={setSupplierDecision} justification={supplierJustification} setJustification={setSupplierJustification} pending={actionPending} onSubmit={submitSupplierDecision} />}
               {canResolve && !needsCorrection && <HumanDecisionForm decision={humanDecision} setDecision={setHumanDecision} justification={humanJustification} setJustification={setHumanJustification} pending={actionPending} onSubmit={submitHumanDecision} />}
 
               <Timeline events={timeline} />
@@ -307,6 +329,11 @@ function CorrectionForm({ data, setData, justification, setJustification, pendin
 
 function HumanDecisionForm({ decision, setDecision, justification, setJustification, pending, onSubmit }: { decision: "APPROVED" | "REJECTED"; setDecision: (value: "APPROVED" | "REJECTED") => void; justification: string; setJustification: (value: string) => void; pending: boolean; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
   return <form className="action-panel" onSubmit={onSubmit}><p className="eyebrow">Revision humana</p><h3>Resolver excepcion</h3><div className="segmented"><button type="button" className={decision === "APPROVED" ? "selected" : ""} onClick={() => setDecision("APPROVED")}>Aprobar excepcion</button><button type="button" className={decision === "REJECTED" ? "selected danger" : ""} onClick={() => setDecision("REJECTED")}>Rechazar</button></div><label><span>Justificacion obligatoria</span><textarea required value={justification} onChange={(event) => setJustification(event.target.value)} /></label><button className="primary" disabled={pending || !justification.trim()}>{pending ? "Guardando..." : "Guardar decision humana"}</button></form>;
+}
+
+function SupplierDecisionForm({ name, taxId, decision, setDecision, justification, setJustification, pending, onSubmit }: { name: string; taxId: string; decision: "APPROVED" | "REJECTED"; setDecision: (value: "APPROVED" | "REJECTED") => void; justification: string; setJustification: (value: string) => void; pending: boolean; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+  const rejecting = decision === "REJECTED";
+  return <form className="action-panel supplier-review" onSubmit={onSubmit}><p className="eyebrow">Proveedor nuevo</p><h3>Aprobar alta de proveedor</h3><div className="supplier-review-summary"><div><span>Proveedor</span><strong>{name}</strong></div><div><span>RUC</span><strong>{taxId}</strong></div></div><div className="segmented"><button type="button" className={decision === "APPROVED" ? "selected" : ""} onClick={() => setDecision("APPROVED")}>Aprobar proveedor</button><button type="button" className={rejecting ? "selected danger" : ""} onClick={() => setDecision("REJECTED")}>Rechazar factura</button></div>{rejecting && <label><span>Justificacion obligatoria</span><textarea required value={justification} onChange={(event) => setJustification(event.target.value)} /></label>}<button className="primary" disabled={pending || (rejecting && !justification.trim())}>{pending ? "Guardando..." : rejecting ? "Rechazar factura" : "Crear proveedor y revalidar"}</button></form>;
 }
 
 function Timeline({ events }: { events: AuditEvent[] }) {

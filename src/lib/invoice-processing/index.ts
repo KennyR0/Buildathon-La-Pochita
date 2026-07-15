@@ -51,8 +51,64 @@ export async function getPersistedResult(invoiceId: string, repository = new Inv
   return result;
 }
 
+export async function decideSupplierForInvoice(
+  invoiceId: string,
+  decision: "APPROVED" | "REJECTED",
+  justification: string,
+  repository = new InvoiceRepository(),
+): Promise<InvoiceResult> {
+  const invoice = await repository.getInvoice(invoiceId);
+  if (!invoice) throw new SupabaseRepositoryError("NOT_FOUND", "Invoice not found");
+  const extracted = toExtractedData(invoice);
+  const canReviewSupplier = invoice.automatic_decision === "NEEDS_REVIEW_HIGH_RISK"
+    && !invoice.human_decision
+    && invoice.automatic_reasons.includes("SUPPLIER_EXISTS")
+    && extracted.invalid_fields.length === 0
+    && Boolean(extracted.supplier_name?.trim())
+    && Boolean(extracted.tax_id?.trim());
+  if (!canReviewSupplier) throw new SupabaseRepositoryError("CONFLICT", "Invoice is not awaiting supplier review");
+
+  if (decision === "REJECTED") {
+    await repository.recordHumanDecision(invoiceId, "REJECTED", justification, { review_type: "SUPPLIER", reason: "SUPPLIER_REJECTED" });
+    return await getPersistedResult(invoiceId, repository) as InvoiceResult;
+  }
+
+  const supplierWrite = await repository.createSupplier(extracted.supplier_name as string, extracted.tax_id as string);
+  const order = await repository.findPurchaseOrder(extracted.purchase_order_number);
+  const foundDuplicate = await repository.findDuplicateRoot(extracted.invoice_number);
+  const outcome = evaluateInvoice({
+    extracted,
+    supplier: supplierWrite.supplier,
+    purchaseOrder: order,
+    duplicateRootId: foundDuplicate === invoiceId ? null : foundDuplicate,
+  });
+  await repository.updateAfterSupplierApproval({
+    invoice,
+    supplier: supplierWrite.supplier,
+    supplierCreated: supplierWrite.created,
+    purchaseOrderId: order?.id ?? null,
+    duplicateOfInvoiceId: outcome.duplicateOfInvoiceId,
+    automaticDecision: outcome.decision,
+    reasons: outcome.reasons,
+    validations: outcome.validations,
+  });
+  return await getPersistedResult(invoiceId, repository) as InvoiceResult;
+}
+
 export function toInvoiceResult(invoice: InvoiceRow, validations: ValidationResult[]): InvoiceResult {
-  const extracted: ExtractedData = {
+  const extracted = toExtractedData(invoice);
+  return {
+    invoice_id: invoice.id, processing_id: invoice.processing_id,
+    duplicate_of_invoice_id: invoice.duplicate_of_invoice_id, extracted_data: extracted, validations,
+    automatic_decision: invoice.automatic_decision, human_decision: invoice.human_decision,
+    human_justification: invoice.human_justification,
+    effective_decision: invoice.human_decision ?? invoice.automatic_decision,
+    reasons: invoice.automatic_reasons,
+  };
+}
+
+function toExtractedData(invoice: InvoiceRow): ExtractedData {
+  return {
     invoice_number: invoice.invoice_number_raw,
     supplier_name: invoice.supplier_name_extracted,
     tax_id: invoice.tax_id_extracted,
@@ -61,13 +117,5 @@ export function toInvoiceResult(invoice: InvoiceRow, validations: ValidationResu
     invalid_fields: invoice.missing_or_invalid_fields as ExtractedData["invalid_fields"],
     extraction_source: "OPENAI",
     fallback_reason: null,
-  };
-  return {
-    invoice_id: invoice.id, processing_id: invoice.processing_id,
-    duplicate_of_invoice_id: invoice.duplicate_of_invoice_id, extracted_data: extracted, validations,
-    automatic_decision: invoice.automatic_decision, human_decision: invoice.human_decision,
-    human_justification: invoice.human_justification,
-    effective_decision: invoice.human_decision ?? invoice.automatic_decision,
-    reasons: invoice.automatic_reasons,
   };
 }
