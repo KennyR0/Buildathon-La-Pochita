@@ -36,8 +36,17 @@ create table public.invoices (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   check ((human_decision is null and human_justification is null and human_decided_at is null)
-      or (human_decision is not null and btrim(human_justification) <> '' and human_decided_at is not null)),
-  check (duplicate_of_invoice_id is null or duplicate_of_invoice_id <> id)
+      or (human_decision is not null and automatic_decision = 'NEEDS_REVIEW_HIGH_RISK'
+          and human_justification is not null and btrim(human_justification) <> ''
+          and human_decided_at is not null)),
+  check (invoice_number_normalized is null
+      or (invoice_number_normalized = upper(btrim(invoice_number_normalized)) and invoice_number_normalized <> '')),
+  check (tax_id_extracted is null
+      or (tax_id_extracted = upper(btrim(tax_id_extracted)) and tax_id_extracted <> '')),
+  check (purchase_order_number is null
+      or (purchase_order_number = upper(btrim(purchase_order_number)) and purchase_order_number <> '')),
+  check (duplicate_of_invoice_id is null
+      or (duplicate_of_invoice_id <> id and automatic_decision = 'REJECTED'))
 );
 
 create index invoices_invoice_number_normalized_idx on public.invoices(invoice_number_normalized);
@@ -61,4 +70,4 @@ alter table public.invoices enable row level security;
 alter table public.audit_logs enable row level security;
 
 revoke all on public.suppliers, public.purchase_orders, public.invoices, public.audit_logs from anon, authenticated;
-
+grant select, insert, update, delete on public.suppliers, public.purchase_orders, public.invoices, public.audit_logs to service_role;

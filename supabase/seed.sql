@@ -21,3 +21,16 @@ values (
 )
 on conflict (processing_id) do update set updated_at = now();
 
+insert into public.audit_logs (id, processing_id, invoice_id, event_type, status, details)
+values
+  ('50000000-0000-4000-8000-000000000001', '40000000-0000-4000-8000-000000000001',
+   (select id from public.invoices where processing_id = '40000000-0000-4000-8000-000000000001'),
+   'RULES_EVALUATED', 'COMPLETED', '{"decision":"APPROVED","seed":true}'::jsonb),
+  ('50000000-0000-4000-8000-000000000002', '40000000-0000-4000-8000-000000000001',
+   (select id from public.invoices where processing_id = '40000000-0000-4000-8000-000000000001'),
+   'INVOICE_PERSISTED', 'COMPLETED', '{"automatic_decision":"APPROVED","seed":true}'::jsonb)
+on conflict (id) do update
+set invoice_id = excluded.invoice_id,
+    event_type = excluded.event_type,
+    status = excluded.status,
+    details = excluded.details;

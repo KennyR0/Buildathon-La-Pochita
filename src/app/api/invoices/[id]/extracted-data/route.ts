@@ -23,6 +23,12 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const repository = new InvoiceRepository();
     const before = await repository.getInvoice(id);
     if (!before) return NextResponse.json({ code: "NOT_FOUND", message: "Factura no encontrada." }, { status: 404 });
+    if (before.missing_or_invalid_fields.length === 0 || before.human_decision) {
+      return NextResponse.json(
+        { code: "CORRECTION_CONFLICT", message: "Solo una factura incompleta y no resuelta puede corregirse." },
+        { status: 409 },
+      );
+    }
     const supplier = await repository.findSupplier(extracted.tax_id);
     const order = await repository.findPurchaseOrder(extracted.purchase_order_number);
     const foundDuplicate = await repository.findDuplicateRoot(extracted.invoice_number);
@@ -34,7 +40,10 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     });
     return NextResponse.json(await getPersistedResult(id, repository));
   } catch (error) {
-    if (error instanceof SupabaseRepositoryError) return NextResponse.json({ code: error.kind, message: error.message }, { status: error.kind === "NOT_FOUND" ? 404 : 503 });
+    if (error instanceof SupabaseRepositoryError) {
+      const status = error.kind === "CONFLICT" ? 409 : error.kind === "NOT_FOUND" ? 404 : 503;
+      return NextResponse.json({ code: error.kind, message: error.message }, { status });
+    }
     return NextResponse.json({ code: "CORRECTION_FAILED", message: "No fue posible corregir y reprocesar la factura." }, { status: 500 });
   }
 }

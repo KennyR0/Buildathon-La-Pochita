@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateInvoice } from "@/lib/rules";
+import { evaluateInvoice, normalizeKey } from "@/lib/rules";
 import type { ExtractedData } from "@/lib/contracts/types";
 
 const extracted = (overrides: Partial<ExtractedData> = {}): ExtractedData => ({
@@ -31,5 +31,33 @@ describe("deterministic invoice rules", () => {
     expect(result.decision).toBe("NEEDS_REVIEW_HIGH_RISK");
     expect(result.reasons).toEqual(expect.arrayContaining(["EXTRACTION_COMPLETE", "SUPPLIER_EXISTS", "PURCHASE_ORDER_EXISTS"]));
   });
-});
 
+  it("normalizes lookup keys after trim and rejects whitespace-only values", () => {
+    expect(normalizeKey("  inv-ab-001  ")).toBe("INV-AB-001");
+    expect(normalizeKey("   ")).toBeNull();
+    expect(normalizeKey(null)).toBeNull();
+  });
+
+  it("escalates when the supplier does not own the purchase order", () => {
+    const result = evaluateInvoice({
+      extracted: extracted(),
+      supplier,
+      purchaseOrder: { ...order, supplier_id: "supplier-2" },
+      duplicateRootId: null,
+    });
+
+    expect(result.decision).toBe("NEEDS_REVIEW_HIGH_RISK");
+    expect(result.reasons).toEqual(["SUPPLIER_MATCHES_ORDER"]);
+    expect(result.validations).toContainEqual(expect.objectContaining({ code: "AMOUNT_MATCHES", status: "PASSED" }));
+  });
+
+  it("does not invent supplier-match or amount validations when the order is absent", () => {
+    const result = evaluateInvoice({ extracted: extracted(), supplier, purchaseOrder: null, duplicateRootId: null });
+    const validationCodes = result.validations.map(validation => validation.code);
+
+    expect(result.decision).toBe("NEEDS_REVIEW_HIGH_RISK");
+    expect(result.reasons).toEqual(["PURCHASE_ORDER_EXISTS"]);
+    expect(validationCodes).not.toContain("SUPPLIER_MATCHES_ORDER");
+    expect(validationCodes).not.toContain("AMOUNT_MATCHES");
+  });
+});

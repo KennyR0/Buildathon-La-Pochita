@@ -8,7 +8,7 @@ import { SupabaseRepositoryError } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 
-const acceptedTypes = new Set(["image/png", "image/jpeg", "image/svg+xml", "application/pdf"]);
+const acceptedTypes = new Set(["image/png", "image/jpeg", "application/pdf"]);
 
 async function saveDevelopmentUpload(originalName: string, bytes: Buffer) {
   if (process.env.NODE_ENV !== "development") return;

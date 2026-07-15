@@ -16,9 +16,15 @@ const invoice = {
   tax_id_extracted: supplier.tax_id, purchase_order_number: order.po_number, total: 1500, supplier_id: supplier.id,
   purchase_order_id: order.id, missing_or_invalid_fields: [], automatic_decision: "APPROVED", automatic_reasons: [],
 };
+const audit = [
+  { id: "50000000-0000-4000-8000-000000000001", processing_id: invoice.processing_id, invoice_id: invoice.id,
+    event_type: "RULES_EVALUATED", status: "COMPLETED", details: { decision: "APPROVED", seed: true } },
+  { id: "50000000-0000-4000-8000-000000000002", processing_id: invoice.processing_id, invoice_id: invoice.id,
+    event_type: "INVOICE_PERSISTED", status: "COMPLETED", details: { automatic_decision: "APPROVED", seed: true } },
+];
 
-for (const [table, row, conflict] of [["suppliers", supplier, "tax_id"], ["purchase_orders", order, "po_number"], ["invoices", invoice, "processing_id"]]) {
+for (const [table, row, conflict] of [["suppliers", supplier, "tax_id"], ["purchase_orders", order, "po_number"], ["invoices", invoice, "processing_id"], ["audit_logs", audit, "id"]]) {
   const { error } = await db.from(table).upsert(row, { onConflict: conflict });
   if (error) { console.error(`Seed failed for ${table}: ${error.message}`); process.exit(1); }
 }
-console.log("InvoiceGuard demo seed is ready (supplier, PO-DEMO-1500, duplicate root).");
+console.log("InvoiceGuard demo seed is ready (supplier, PO-DEMO-1500, duplicate root, audit timeline).");

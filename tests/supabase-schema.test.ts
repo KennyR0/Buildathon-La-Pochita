@@ -18,9 +18,10 @@ describe("Supabase MVP schema", () => {
     expect(migration).toContain("duplicate_of_invoice_id uuid references public.invoices(id)");
   });
 
-  it("has idempotent seed conflicts for supplier, order, and original invoice", () => {
-    expect(seed.match(/on conflict/gi)).toHaveLength(3);
+  it("has idempotent seed conflicts for supplier, order, original invoice, and timeline", () => {
+    expect(seed.match(/on conflict/gi)).toHaveLength(4);
     expect(seed).toContain("PO-DEMO-1500");
     expect(seed).toContain("INV-DUP-001");
+    expect(seed).toContain("INVOICE_PERSISTED");
   });
 });

@@ -1,22 +1,23 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import type { ApiError, AuditEvent, Decision, ExtractedData, FieldName, InvoiceResult } from "@/lib/contracts/types";
+import type { AuditEvent, Decision, ExtractedData, FieldName, InvoiceResult } from "@/lib/contracts/types";
+import { canShowHumanDecision, readApiResponse } from "@/components/invoice-workbench-helpers";
 
 type LoadState = "idle" | "processing" | "success" | "error";
 type EditableData = Pick<ExtractedData, "invoice_number" | "supplier_name" | "tax_id" | "purchase_order_number" | "total">;
 
 const fieldLabels: Record<FieldName, string> = {
-  invoice_number: "Número de factura",
+  invoice_number: "Numero de factura",
   supplier_name: "Proveedor",
-  tax_id: "RUC / identificación tributaria",
+  tax_id: "RUC / identificacion tributaria",
   purchase_order_number: "Orden de compra",
   total: "Total facturado",
 };
 
 const decisionLabels: Record<Decision, string> = {
   APPROVED: "Aprobada",
-  NEEDS_REVIEW_HIGH_RISK: "Revisión requerida",
+  NEEDS_REVIEW_HIGH_RISK: "Revision requerida",
   REJECTED: "Rechazada",
 };
 
@@ -27,15 +28,6 @@ const emptyCorrection: EditableData = {
   purchase_order_number: null,
   total: null,
 };
-
-async function readJson<T>(response: Response): Promise<T> {
-  const body = (await response.json()) as T | ApiError;
-  if (!response.ok) {
-    const error = body as ApiError;
-    throw new Error(error.message || "No se pudo completar la solicitud.");
-  }
-  return body as T;
-}
 
 export function InvoiceWorkbench() {
   const [loadState, setLoadState] = useState<LoadState>("idle");
@@ -60,7 +52,7 @@ export function InvoiceWorkbench() {
     });
     localStorage.setItem("invoiceguard:last-invoice", invoice.invoice_id);
     const response = await fetch(`/api/invoices/${invoice.invoice_id}/timeline`, { cache: "no-store" });
-    setTimeline(await readJson<AuditEvent[]>(response));
+    setTimeline(await readApiResponse<AuditEvent[]>(response));
   }, []);
 
   useEffect(() => {
@@ -71,7 +63,7 @@ export function InvoiceWorkbench() {
       try {
         setLoadState("processing");
         const response = await fetch(`/api/invoices/${invoiceId}`, { cache: "no-store" });
-        const invoice = await readJson<InvoiceResult>(response);
+        const invoice = await readApiResponse<InvoiceResult>(response);
         if (active) {
           await hydrateResult(invoice);
           setLoadState("success");
@@ -99,7 +91,7 @@ export function InvoiceWorkbench() {
     body.append("file", file);
     try {
       const response = await fetch("/api/invoices/process", { method: "POST", body });
-      const invoice = await readJson<InvoiceResult>(response);
+      const invoice = await readApiResponse<InvoiceResult>(response);
       await hydrateResult(invoice);
       setLoadState("success");
     } catch (cause) {
@@ -117,7 +109,7 @@ export function InvoiceWorkbench() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...correction, justification: correctionJustification.trim() }),
       });
-      await hydrateResult(await readJson<InvoiceResult>(response));
+      await hydrateResult(await readApiResponse<InvoiceResult>(response));
       setCorrectionJustification("");
     });
   }
@@ -131,7 +123,7 @@ export function InvoiceWorkbench() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ decision: humanDecision, justification: humanJustification.trim() }),
       });
-      await hydrateResult(await readJson<InvoiceResult>(response));
+      await hydrateResult(await readApiResponse<InvoiceResult>(response));
       setHumanJustification("");
     });
   }
@@ -149,7 +141,7 @@ export function InvoiceWorkbench() {
   }
 
   const needsCorrection = Boolean(result?.extracted_data.invalid_fields.length);
-  const canResolve = result?.effective_decision === "NEEDS_REVIEW_HIGH_RISK" && !result.human_decision;
+  const canResolve = result ? canShowHumanDecision(result.effective_decision, result.human_decision) : false;
   const decisionTone = useMemo(() => result?.effective_decision.toLowerCase().replaceAll("_", "-") ?? "", [result]);
 
   return (
@@ -158,7 +150,11 @@ export function InvoiceWorkbench() {
         <div className="brand-mark">IG</div>
         <div>
           <p className="eyebrow">InvoiceGuard AI</p>
-          <h1>Decisiones de facturas<br />claras y auditables</h1>
+          <h1>
+            Decisiones de facturas
+            <br />
+            claras y auditables
+          </h1>
           <p className="hero-copy">Carga una factura. Verificamos proveedor, orden, monto y duplicados antes de decidir.</p>
         </div>
         <div className="system-status"><span /> Sistema de reglas activo</div>
@@ -182,18 +178,18 @@ export function InvoiceWorkbench() {
             <small>{file ? `${(file.size / 1024).toFixed(0)} KB` : "PNG, JPG o PDF"}</small>
           </label>
           <button className="primary" disabled={loadState === "processing"}>
-            {loadState === "processing" ? "Procesando…" : "Procesar factura"}
+            {loadState === "processing" ? "Procesando..." : "Procesar factura"}
           </button>
         </form>
 
         <section className="result-area" aria-live="polite">
           {loadState === "idle" && <EmptyState />}
           {loadState === "processing" && <ProcessingState />}
-          {error && <div className="error-banner" role="alert"><strong>No se completó el proceso</strong><span>{error}</span></div>}
+          {error && <div className="error-banner" role="alert"><strong>No se completo el proceso</strong><span>{error}</span></div>}
           {result && (
             <>
               <div className="result-heading">
-                <div><p className="eyebrow">Resultado persistido</p><h2>Factura {result.extracted_data.invoice_number ?? "sin número"}</h2></div>
+                <div><p className="eyebrow">Resultado persistido</p><h2>Factura {result.extracted_data.invoice_number ?? "sin numero"}</h2></div>
                 <span className={`decision-badge ${decisionTone}`}>{decisionLabels[result.effective_decision]}</span>
               </div>
 
@@ -218,7 +214,7 @@ export function InvoiceWorkbench() {
                 <div className="validation-list">
                   {result.validations.map((validation) => (
                     <div className={`validation ${validation.status.toLowerCase()}`} key={validation.code}>
-                      <span className="validation-icon">{validation.status === "PASSED" ? "✓" : validation.status === "FAILED" ? "!" : "–"}</span>
+                      <span className="validation-icon">{validation.status === "PASSED" ? "OK" : validation.status === "FAILED" ? "!" : "-"}</span>
                       <div><strong>{humanize(validation.code)}</strong><p>{validation.message}</p></div>
                     </div>
                   ))}
@@ -226,10 +222,10 @@ export function InvoiceWorkbench() {
               </section>
 
               <section className="decision-panel">
-                <div><p className="eyebrow">Decisión automática</p><h3>{decisionLabels[result.automatic_decision]}</h3></div>
+                <div><p className="eyebrow">Decision automatica</p><h3>{decisionLabels[result.automatic_decision]}</h3></div>
                 <ul>{result.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
                 {result.duplicate_of_invoice_id && <p className="reference">Duplicado de: <code>{result.duplicate_of_invoice_id}</code></p>}
-                {result.human_decision && <div className="human-result"><strong>Decisión humana: {decisionLabels[result.human_decision]}</strong><p>{result.human_justification}</p></div>}
+                {result.human_decision && <div className="human-result"><strong>Decision humana: {decisionLabels[result.human_decision]}</strong><p>{result.human_justification}</p></div>}
               </section>
 
               {needsCorrection && <CorrectionForm data={correction} setData={setCorrection} justification={correctionJustification} setJustification={setCorrectionJustification} pending={actionPending} onSubmit={submitCorrection} />}
@@ -245,7 +241,7 @@ export function InvoiceWorkbench() {
 }
 
 function EmptyState() {
-  return <div className="empty-state"><div className="document-shape" /><p className="eyebrow">Esperando factura</p><h2>El análisis aparecerá aquí</h2><p>Extracción, validaciones, decisión y trazabilidad en una sola vista.</p></div>;
+  return <div className="empty-state"><div className="document-shape" /><p className="eyebrow">Esperando factura</p><h2>El analisis aparecera aqui</h2><p>Extraccion, validaciones, decision y trazabilidad en una sola vista.</p></div>;
 }
 
 function ProcessingState() {
@@ -253,11 +249,11 @@ function ProcessingState() {
 }
 
 function CorrectionForm({ data, setData, justification, setJustification, pending, onSubmit }: { data: EditableData; setData: (data: EditableData) => void; justification: string; setJustification: (value: string) => void; pending: boolean; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
-  return <form className="action-panel" onSubmit={onSubmit}><p className="eyebrow">Extracción parcial</p><h3>Corrige los datos para continuar</h3><div className="form-grid">{(Object.keys(fieldLabels) as FieldName[]).map((field) => <label key={field}><span>{fieldLabels[field]}</span><input required type={field === "total" ? "number" : "text"} min={field === "total" ? 0 : undefined} step={field === "total" ? "0.01" : undefined} value={data[field] ?? ""} onChange={(event) => setData({ ...data, [field]: field === "total" ? (event.target.value === "" ? null : Number(event.target.value)) : event.target.value })} /></label>)}</div><label><span>Justificación de la corrección</span><textarea required value={justification} onChange={(event) => setJustification(event.target.value)} /></label><button className="primary" disabled={pending || !justification.trim()}>{pending ? "Guardando…" : "Corregir y reprocesar"}</button></form>;
+  return <form className="action-panel" onSubmit={onSubmit}><p className="eyebrow">Extraccion parcial</p><h3>Corrige los datos para continuar</h3><div className="form-grid">{(Object.keys(fieldLabels) as FieldName[]).map((field) => <label key={field}><span>{fieldLabels[field]}</span><input required type={field === "total" ? "number" : "text"} min={field === "total" ? 0 : undefined} step={field === "total" ? "0.01" : undefined} value={data[field] ?? ""} onChange={(event) => setData({ ...data, [field]: field === "total" ? (event.target.value === "" ? null : Number(event.target.value)) : event.target.value })} /></label>)}</div><label><span>Justificacion de la correccion</span><textarea required value={justification} onChange={(event) => setJustification(event.target.value)} /></label><button className="primary" disabled={pending || !justification.trim()}>{pending ? "Guardando..." : "Corregir y reprocesar"}</button></form>;
 }
 
 function HumanDecisionForm({ decision, setDecision, justification, setJustification, pending, onSubmit }: { decision: "APPROVED" | "REJECTED"; setDecision: (value: "APPROVED" | "REJECTED") => void; justification: string; setJustification: (value: string) => void; pending: boolean; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
-  return <form className="action-panel" onSubmit={onSubmit}><p className="eyebrow">Revisión humana</p><h3>Resolver excepción</h3><div className="segmented"><button type="button" className={decision === "APPROVED" ? "selected" : ""} onClick={() => setDecision("APPROVED")}>Aprobar excepción</button><button type="button" className={decision === "REJECTED" ? "selected danger" : ""} onClick={() => setDecision("REJECTED")}>Rechazar</button></div><label><span>Justificación obligatoria</span><textarea required value={justification} onChange={(event) => setJustification(event.target.value)} /></label><button className="primary" disabled={pending || !justification.trim()}>{pending ? "Guardando…" : "Guardar decisión humana"}</button></form>;
+  return <form className="action-panel" onSubmit={onSubmit}><p className="eyebrow">Revision humana</p><h3>Resolver excepcion</h3><div className="segmented"><button type="button" className={decision === "APPROVED" ? "selected" : ""} onClick={() => setDecision("APPROVED")}>Aprobar excepcion</button><button type="button" className={decision === "REJECTED" ? "selected danger" : ""} onClick={() => setDecision("REJECTED")}>Rechazar</button></div><label><span>Justificacion obligatoria</span><textarea required value={justification} onChange={(event) => setJustification(event.target.value)} /></label><button className="primary" disabled={pending || !justification.trim()}>{pending ? "Guardando..." : "Guardar decision humana"}</button></form>;
 }
 
 function Timeline({ events }: { events: AuditEvent[] }) {
@@ -265,7 +261,7 @@ function Timeline({ events }: { events: AuditEvent[] }) {
 }
 
 function formatField(value: string | number | null, field: FieldName) {
-  if (value === null || value === "") return "Requiere corrección";
+  if (value === null || value === "") return "Requiere correccion";
   if (field === "total" && typeof value === "number") return new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" }).format(value);
   return String(value);
 }

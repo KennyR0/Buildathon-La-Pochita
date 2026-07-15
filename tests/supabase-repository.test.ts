@@ -41,3 +41,69 @@ describe("Supabase repository failures", () => {
     expect(deleteEq).toHaveBeenCalledWith("id", "invoice-id");
   });
 });
+
+describe("Supabase duplicate lookup", () => {
+  it("returns the original/root invoice for both original and duplicate matches", async () => {
+    const maybeSingle = vi.fn()
+      .mockResolvedValueOnce({ data: { id: "original-id", duplicate_of_invoice_id: null }, error: null })
+      .mockResolvedValueOnce({ data: { id: "duplicate-id", duplicate_of_invoice_id: "root-id" }, error: null });
+    const chain = {
+      select: () => chain,
+      eq: () => chain,
+      order: () => chain,
+      limit: () => chain,
+      maybeSingle,
+    };
+    const repository = new InvoiceRepository({ from: () => chain } as unknown as SupabaseClient);
+
+    await expect(repository.findDuplicateRoot(" inv-1 ")).resolves.toBe("original-id");
+    await expect(repository.findDuplicateRoot("INV-1")).resolves.toBe("root-id");
+  });
+});
+
+describe("Supabase human decision guard", () => {
+  it("rejects a second resolution before changing the invoice or audit history", async () => {
+    const update = vi.fn();
+    const auditInsert = vi.fn();
+    const invoiceQuery = {
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({
+            data: {
+              processing_id: "processing-id",
+              automatic_decision: "NEEDS_REVIEW_HIGH_RISK",
+              human_decision: "APPROVED",
+            },
+            error: null,
+          }),
+        }),
+      }),
+      update,
+    };
+    const db = {
+      from: (table: string) => table === "invoices" ? invoiceQuery : { insert: auditInsert },
+    } as unknown as SupabaseClient;
+    const repository = new InvoiceRepository(db);
+
+    await expect(repository.recordHumanDecision("invoice-id", "REJECTED", "Segundo intento"))
+      .rejects.toMatchObject({ kind: "CONFLICT", status: 503, message: "Invoice cannot be resolved again" });
+    expect(update).not.toHaveBeenCalled();
+    expect(auditInsert).not.toHaveBeenCalled();
+  });
+});
+
+describe("Supabase supplier lookup", () => {
+  it("skips whitespace-only RUC values and queries normalized identifiers", async () => {
+    const eq = vi.fn(() => ({
+      maybeSingle: async () => ({ data: { id: "supplier-id", tax_id: "ABC123", name: "Proveedor" }, error: null }),
+    }));
+    const from = vi.fn(() => ({ select: () => ({ eq }) }));
+    const repository = new InvoiceRepository({ from } as unknown as SupabaseClient);
+
+    await expect(repository.findSupplier("   ")).resolves.toBeNull();
+    expect(from).not.toHaveBeenCalled();
+
+    await expect(repository.findSupplier("  abc123 ")).resolves.toMatchObject({ id: "supplier-id", tax_id: "ABC123" });
+    expect(eq).toHaveBeenCalledWith("tax_id", "ABC123");
+  });
+});
