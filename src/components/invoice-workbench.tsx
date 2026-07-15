@@ -21,6 +21,59 @@ const decisionLabels: Record<Decision, string> = {
   REJECTED: "Rechazada",
 };
 
+const auditEventLabels: Record<string, string> = {
+  PROCESSING_STARTED: "Procesamiento iniciado",
+  EXTRACTION_COMPLETED: "Extraccion completada",
+  EXTRACTION_FALLBACK_USED: "Extraccion con respaldo",
+  EXTRACTION_INVALID: "Extraccion incompleta",
+  STRUCTURE_VALIDATED: "Estructura validada",
+  SUPPLIER_CHECKED: "Proveedor verificado",
+  PURCHASE_ORDER_CHECKED: "Orden de compra verificada",
+  DUPLICATE_CHECKED: "Duplicado verificado",
+  AMOUNT_COMPARED: "Monto comparado",
+  RULES_EVALUATED: "Reglas evaluadas",
+  INVOICE_PERSISTED: "Factura guardada",
+  PERSISTENCE_FAILED: "Persistencia fallida",
+  FIELDS_CORRECTED: "Campos corregidos",
+  HUMAN_DECISION_RECORDED: "Decision humana registrada",
+};
+
+const validationLabels: Record<string, string> = {
+  DUPLICATE_INVOICE: "Factura duplicada",
+  EXTRACTION_COMPLETE: "Extraccion completa",
+  SUPPLIER_EXISTS: "Proveedor existe",
+  PURCHASE_ORDER_EXISTS: "Orden de compra existe",
+  SUPPLIER_MATCHES_ORDER: "Proveedor coincide con la orden",
+  AMOUNT_MATCHES: "Monto coincide",
+};
+
+const detailLabels: Record<string, string> = {
+  after: "Despues",
+  automatic_decision: "Decision automatica",
+  authorized_amount: "Monto autorizado",
+  before: "Antes",
+  decision: "Decision",
+  description: "Descripcion",
+  duplicate_of_invoice_id: "Duplicado de la factura",
+  invoice_total: "Total de factura",
+  invalid_fields: "Campos invalidos",
+  justification: "Justificacion",
+  message: "Mensaje",
+  purchase_order_id: "ID de orden de compra",
+  reason: "Motivo",
+  reasons: "Motivos",
+  skipped: "Omitido",
+  source: "Fuente",
+  supplier_id: "ID de proveedor",
+  validations: "Validaciones",
+};
+
+const sourceLabels: Record<string, string> = {
+  OPENAI: "OpenAI",
+  OCR_SPACE_OPENAI: "OCR de respaldo + OpenAI",
+  FIXTURE_FALLBACK: "Datos de demostracion",
+};
+
 const emptyCorrection: EditableData = {
   invoice_number: null,
   supplier_name: null,
@@ -215,7 +268,7 @@ export function InvoiceWorkbench() {
                   {result.validations.map((validation) => (
                     <div className={`validation ${validation.status.toLowerCase()}`} key={validation.code}>
                       <span className="validation-icon">{validation.status === "PASSED" ? "OK" : validation.status === "FAILED" ? "!" : "-"}</span>
-                      <div><strong>{humanize(validation.code)}</strong><p>{validation.message}</p></div>
+                      <div><strong>{translateCode(validation.code)}</strong><p>{validation.message}</p></div>
                     </div>
                   ))}
                 </div>
@@ -223,7 +276,7 @@ export function InvoiceWorkbench() {
 
               <section className="decision-panel">
                 <div><p className="eyebrow">Decision automatica</p><h3>{decisionLabels[result.automatic_decision]}</h3></div>
-                <ul>{result.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+                <ul>{result.reasons.map((reason) => <li key={reason}>{translateCode(reason)}</li>)}</ul>
                 {result.duplicate_of_invoice_id && <p className="reference">Duplicado de: <code>{result.duplicate_of_invoice_id}</code></p>}
                 {result.human_decision && <div className="human-result"><strong>Decision humana: {decisionLabels[result.human_decision]}</strong><p>{result.human_justification}</p></div>}
               </section>
@@ -257,7 +310,7 @@ function HumanDecisionForm({ decision, setDecision, justification, setJustificat
 }
 
 function Timeline({ events }: { events: AuditEvent[] }) {
-  return <section className="timeline-panel"><div className="panel-title"><span className="step-number small">03</span><div><h3>Timeline auditado</h3><p>{events.length} eventos persistidos</p></div></div><ol className="timeline">{events.map((event) => <li key={event.id}><span className={`event-dot ${event.status.toLowerCase()}`} /><div><div className="event-header"><strong>{humanize(event.event_type)}</strong><time>{new Date(event.created_at).toLocaleString("es-EC", { dateStyle: "short", timeStyle: "short" })}</time></div><p>{describeDetails(event.details)}</p></div></li>)}</ol></section>;
+  return <section className="timeline-panel"><div className="panel-title"><span className="step-number small">03</span><div><h3>Linea de auditoria</h3><p>{events.length} eventos persistidos</p></div></div><ol className="timeline">{events.map((event) => <li key={event.id}><span className={`event-dot ${event.status.toLowerCase()}`} /><div><div className="event-header"><strong>{translateEvent(event.event_type)}</strong><time>{new Date(event.created_at).toLocaleString("es-EC", { dateStyle: "short", timeStyle: "short" })}</time></div><p>{describeDetails(event.details)}</p></div></li>)}</ol></section>;
 }
 
 function formatField(value: string | number | null, field: FieldName) {
@@ -270,9 +323,38 @@ function humanize(value: string) {
   return value.replaceAll("_", " ").toLowerCase().replace(/^./, (letter) => letter.toUpperCase());
 }
 
+function translateEvent(value: string) {
+  return auditEventLabels[value] ?? humanize(value);
+}
+
+function translateCode(value: string) {
+  return validationLabels[value] ?? decisionLabels[value as Decision] ?? sourceLabels[value] ?? humanize(value);
+}
+
 function describeDetails(details: Record<string, unknown>) {
   const preferred = details.message ?? details.reason ?? details.description;
-  if (typeof preferred === "string") return preferred;
-  const entries = Object.entries(details).slice(0, 3).map(([key, value]) => `${humanize(key)}: ${String(value)}`);
-  return entries.join(" · ") || "Evento registrado correctamente.";
+  if (typeof preferred === "string") return translateCode(preferred);
+  const entries = Object.entries(details)
+    .filter(([, value]) => value !== null && value !== undefined && value !== "")
+    .slice(0, 4)
+    .map(([key, value]) => `${detailLabels[key] ?? humanize(key)}: ${formatDetailValue(value)}`);
+  return entries.join(" - ") || "Evento registrado correctamente.";
+}
+
+function formatDetailValue(value: unknown): string {
+  if (value === null || value === undefined) return "No aplica";
+  if (typeof value === "boolean") return value ? "Si" : "No";
+  if (typeof value === "number") return String(value);
+  if (typeof value === "string") return translateCode(value);
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "Ninguno";
+    return value.map(formatDetailValue).join(", ");
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, nested]) => nested !== null && nested !== undefined && nested !== "")
+      .map(([key, nested]) => `${detailLabels[key] ?? humanize(key)}: ${formatDetailValue(nested)}`);
+    return entries.join("; ") || "Sin detalles";
+  }
+  return String(value);
 }
